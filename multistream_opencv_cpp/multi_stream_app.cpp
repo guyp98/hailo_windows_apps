@@ -10,8 +10,8 @@
 #include "multi_stream_app.hpp"
 
  
-bool Display = true;
-int numofStreams = 4;
+bool Display = false;
+int numofStreams = 1;
 
 
 hailo_status create_feature(hailo_output_vstream vstream,
@@ -77,14 +77,14 @@ hailo_status post_processing_all(std::vector<std::shared_ptr<FeatureData>> &feat
         RuntimeMeasure* rm = RuntimeMeasure::getInstance();
         rm->startTimer(2);
         // Run the post processing
-        // std::cout << "Postprosses" << std::endl;
+        // std::cerr << "Postprosses" << std::endl;
         post_process_fun(roi);
-        // std::cout << "Postprosses end" << std::endl;
+        // std::cerr << "Postprosses end" << std::endl;
         num_of_frames++;
         double time = rm->endTimer(1);
-        std::cout << "hailo+postprocess FPS: " << num_of_frames/(time/1000.0) << std::endl;
+        std::cerr << "hailo+postprocess FPS: " << num_of_frames/(time/1000.0) << std::endl;
         double time1 = rm->endTimer(2);
-        std::cout << "postprocess milliseconds: " << time1 << std::endl;       
+        std::cerr << "postprocess milliseconds: " << time1 << std::endl;       
         
         for (auto &feature : features)
         {
@@ -125,19 +125,52 @@ hailo_status display_image(HailoRGBMat &image, HailoROIPtr roi, int stream_id, s
     return HAILO_SUCCESS;
 }
 
+bool recive_preallocate_vector(std::vector<char>& buffer, size_t size){
+    // buffer.resize(size);
+    std::cin.read(reinterpret_cast<char*>(buffer.data()), size * sizeof(char));
+    return std::cin.good();
+}
 
+bool read_int(int& output) {
+    int val;
+    if (!std::cin.read(reinterpret_cast<char*>(&val), sizeof(val))) {
+        return false; // Exit if configuration cannot be read
+    }
+    output = val;
+    return true;
+}
+
+void print_cv_mat(cv::Mat mat){
+    for (int i = 0; i < mat.rows; i++) {
+        for (int j = 0; j < mat.cols; j++) {
+            std::cerr << static_cast<int>(mat.at<char>(i, j)) << " ";
+        }
+        std::cerr << std::endl;
+    }
+}
 
 hailo_status write_all(hailo_input_vstream input_vstream, std::queue<cv::Mat>& frameQueue, std::queue<int>& frameIdQueue, std::mutex& queueMutex, std::vector<cv::VideoCapture>& captures)
 {
     //start time measurement
     RuntimeMeasure* rm = RuntimeMeasure::getInstance();
     rm->startTimer(1);
+
     int numStreams = captures.size();
+    int buffer_size; 
+    read_int(buffer_size);
+    std::cerr << "buffer size " << buffer_size << std::endl;
+    std::vector<char> buffer(buffer_size);
+
     while (true) {
-        cv::Mat org_frame;
+        cv::Mat org_frame(IMAGE_HEIGHT,IMAGE_WIDTH,CV_8UC3);
+        
         bool endReached = false;
         for (int i = 0; i < numStreams; i++) {
-            captures[i] >> org_frame;
+            // captures[i] >> org_frame;
+            recive_preallocate_vector(buffer,buffer_size);
+
+            std::memcpy(org_frame.data, buffer.data(), buffer.size());
+            // print_cv_mat(org_frame);
             if (org_frame.empty()) {
                 numStreams--;
                 if(numStreams == 0){
@@ -386,7 +419,7 @@ void parse_args(int argc, char* argv[])
     
     options.add_options()("h,help", "Print help")(
       "s,num_fo_streams", "number of streams to run ", cxxopts::value<int>()
-      ->default_value("4"))(
+      ->default_value("1"))(
       "d, display", "Display output (true or false)", cxxopts::value<bool>()
       ->default_value("true"));
       
@@ -395,7 +428,7 @@ void parse_args(int argc, char* argv[])
     
     if (result.count("help")) 
     {
-        std::cout << options.help() << std::endl;
+        std::cerr << options.help() << std::endl;
         exit(0);
     }
    
@@ -420,11 +453,26 @@ hailo_status image_resize(cv::Mat &resized_image,cv::Mat from_image, int image_w
 }
 
 
+void log(const std::string& input){
+    FILE *f = fopen("test.txt", "a");
+    if (f == NULL) {
+        printf("Error opening file!\n");
+        exit(-1);
+    }
+    fprintf(f, "%s\n", input.c_str());
+    fclose(f);
+}
+
 int main(int argc, char* argv[])
 {   
     parse_args(argc, argv);
-    std::printf("display: %s\n", Display ? "true" : "false");
-    std::printf("number of streams: %d\n", numofStreams);
+
+    read_int(numofStreams);
+    std::string t = "number of steams: " + std::to_string(numofStreams);
+    log(t);
+
+    // std::printf("display: %s\n", Display ? "true" : "false");
+    // std::printf("number of streams: %d\n", numofStreams);
 
     hailo_status status;
     status = infer();
